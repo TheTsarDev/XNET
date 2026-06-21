@@ -25,6 +25,25 @@ single byte of it.
 - [XNET-v0.4.1 XISO](_deployments/XNET.xiso)
 - [XNET-v0.4.1 XBE Package](_deployments/XNET.zip)
 
+## SHA-256 Checksums
+
+Verify your downloads using the following SHA-256 hashes
+
+```sh
+XNET.iso
+SHA-256: e2ca7570b1ec4f1a4c806df430cadafaca4e238c9c5f2bb0e83939e72cb47e41
+```
+
+```sh
+XNET.xiso
+SHA-256: 85d3413bc4d6ceef17d4215a410e94977e2b73ff9fff17539bb23bc9ac050dce
+```
+
+```sh
+XNET.zip
+SHA-256: 2e9cfe4212b6b4e7863994d58b8adfdfa0c40e6ad4f9cd223f818c25706c34f4
+```
+
 ## Features
 
 - **Encrypted text chat** — type from an on-screen keyboard.

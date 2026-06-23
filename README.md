@@ -253,6 +253,18 @@ high-threat tool. Please read the full details and limitations:
 
 - XNET is intentionally written with extensive inline documentation and descriptive code structure. Comments, protocol notes, and implementation details are included throughout the source to promote transparency, simplify auditing, and make the project easier for others to understand, maintain, and contribute to. This level of documentation is deliberate and reflects the project's commitment to openness and long-term preservation.
 
+---
+
+# Currently in Development (v0.4.5) Security Upgrades
+
+- Work on XNET v0.4.5 is focused on continued protocol hardening and long-term security improvements. I will introduce anti-replay protection across text, voice, video, and file transfer streams through authenticated sequence numbers, sliding receive windows, and per-room session identifiers while preserving the relay's zero-knowledge design.
+
+- Focus is also on improving initialization vector generation and exploring forward secrecy mechanisms to better isolate sessions and reduce the impact of key compromise. These enhancements are aimed at strengthening XNET's cryptographic foundation while maintaining compatibility with original Xbox hardware.
+
+As the protocol evolves, some of these changes may introduce future wire-format updates requiring clients and relays to be upgraded together.
+
+---
+
 ## Acknowledgments
 
 XNET is built on [tiny-AES-c](https://github.com/kokke/tiny-AES-c),

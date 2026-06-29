@@ -265,6 +265,27 @@ As the protocol evolves, some of these changes may introduce future wire-format 
 
 ---
 
+## ☕ Support Development
+
+If you've found XNET useful or enjoy seeing new software developed for the original Xbox, consider supporting the project.
+
+Your support helps fund:
+
+- New features
+- Bug fixes
+- Original Xbox hardware for testing
+- Server infrastructure
+- Documentation and tooling
+- Future open-source projects
+
+Every contribution helps keep development moving forward.
+
+➡️ https://buymeacoffee.com/tsardev
+
+Thank you for supporting independent software development!
+
+---
+
 ## Acknowledgments
 
 XNET is built on [tiny-AES-c](https://github.com/kokke/tiny-AES-c),

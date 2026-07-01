@@ -214,12 +214,13 @@ void xnet_audio_tick(XNetState* state) {
         if (!g_talking) continue;
 
         uint8_t frame[VOICE_FRAME_BYTES];
-        uint8_t cipher[VOICE_FRAME_BYTES + 16 + 16 + 32]; /* frame + IV + pad + MAC */
+        uint8_t cipher[8 + VOICE_FRAME_BYTES + 16 + 16 + 32]; /* seq + frame + IV + pad + MAC */
         voice_encode_frame(&g_enc, pcm8k, g_tx_seq++, frame);
 
-        int clen = xnet_crypto_encrypt(state->aes_key, frame,
-                                       VOICE_FRAME_BYTES,
-                                       cipher, sizeof(cipher));
+        int clen = xnet_replay_seal(&state->replay, state->aes_key,
+                                    XNET_STREAM_VOICE, state->my_slot,
+                                    frame, VOICE_FRAME_BYTES,
+                                    cipher, sizeof(cipher), 0);
         if (clen > 0) {
             xnet_net_send_pkt(state->sock, PKT_VOICE_ID, state->my_slot,
                               cipher, clen);
@@ -254,7 +255,7 @@ void xnet_audio_tick(XNetState* state) {
         xnet_xblc_write_spk(out16k, VOICE_FRAME_SAMPLES * 2);
     }
 
-    /* ---- periodic stats to xnet.log (every ~10s) ---- */
+    /* ---- periodic stats to tsar.log (every ~10s) ---- */
     uint32_t now = GetTickCount();
     if (now - g_last_stats_tick > 10000) {
         g_last_stats_tick = now;

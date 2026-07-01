@@ -62,7 +62,7 @@ void xnet_video_slot_stats(int slot, int* rx, int* ok, int* rc, int* pend) {
 }
 
 /* scratch for an outgoing encrypted frame: IV + padded plaintext (+margin) */
-static uint8_t  s_tx_cipher[16 + XVID_MAX_JPEG + 16 + 32]; /* IV + jpeg + pad + MAC */
+static uint8_t  s_tx_cipher[8 + 16 + XVID_MAX_JPEG + 16 + 32]; /* seq + IV + jpeg + pad + MAC */
 
 /* ── picojpeg feed state (decode is synchronous + single-threaded) ───────────── */
 static const uint8_t* s_jpg_ptr;
@@ -165,9 +165,27 @@ void xnet_video_on_frame(int slot, const uint8_t* jpeg, int len) {
                   info.m_width, info.m_height);
     }
 
+    /* Watchdog bound for the MCU loop below. picojpeg.h specifies the image is
+       fully decoded after exactly m_MCUSPerRow*m_MCUSPerCol calls to
+       pjpeg_decode_mcu(). A malformed or truncated inbound frame can make the
+       decoder spin without ever returning PJPG_NO_MORE_BLOCKS, which HARD-
+       FREEZES the console (no crash, just a hang in the draw loop). Bounding the
+       loop turns a bad frame into a dropped frame. */
+    int total_mcus = info.m_MCUSPerRow * info.m_MCUSPerCol;
+    int mcu_seen   = 0;
+    if (total_mcus <= 0 || total_mcus > 4096) {   /* sane ceiling for <=320x240 */
+        xnet_logf("video: slot %d bad mcu count %d, dropping frame", slot, total_mcus);
+        return;
+    }
+
     for (;;) {
         int nbx, nby, nblk, bi;
         int ofsTab[4], bxTab[4], byTab[4];
+        if (mcu_seen++ > total_mcus) {            /* runaway decoder — bail, drop frame */
+            xnet_logf("video: slot %d decode overrun (>%d MCUs), dropping frame",
+                      slot, total_mcus);
+            return;
+        }
         rc = pjpeg_decode_mcu();
         if (rc == PJPG_NO_MORE_BLOCKS) break;
         if (rc != 0) break;
@@ -241,8 +259,10 @@ int xnet_video_capture_and_send(XNetState* st) {
     if ((s_self_div++ & 3) == 0)
         xnet_video_on_frame(st->my_slot, jpeg, len);
 
-    int clen = xnet_crypto_encrypt_block(st->aes_key, jpeg, len,
-                                         s_tx_cipher, sizeof(s_tx_cipher));
+    int clen = xnet_replay_seal(&st->replay, st->aes_key,
+                                XNET_STREAM_VIDEO, st->my_slot,
+                                jpeg, len,
+                                s_tx_cipher, sizeof(s_tx_cipher), 1);
     if (clen < 0) return 0;
 
     if (xnet_net_send_pkt(st->sock, PKT_VIDEO, st->my_slot,

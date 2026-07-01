@@ -22,7 +22,7 @@
  * iso_xlen[i] — copying the full maxpkt drags stale bytes in and buries the EOI.
  *
  * Bring-up reality: USB enumeration rarely works first try. Every stage logs to
- * xnet.log so a failed boot tells us exactly where it stopped. The spots most
+ * tsar.log so a failed boot tells us exactly where it stopped. The spots most
  * likely to need a hardware-confirmed tweak are flagged [HW].
  */
 
@@ -91,6 +91,7 @@ static int            s_delivered = -1;                /* last get_frame() hande
 /* IRQ-context diagnostics */
 static volatile uint32_t g_iso_irqs, g_iso_bytes, g_sof, g_eof;
 
+
 /* set when a video session is active; gates the per-packet assembly work so the
    iso ring can keep running cheaply when no one is watching */
 static volatile int g_want_frames = 0;
@@ -103,16 +104,6 @@ static int g_sensor76 = 0;
 static unsigned long s_sess_start = 0;
 static int           s_sess_completed0 = 0;
 static int           s_sess_kicked = 0;
-
-/* diagnostic snapshot for the on-console DEBUG CAMERA screen */
-void xnet_camera_debug_stats(uint32_t* irqs, uint32_t* bytes,
-                             uint32_t* sof, uint32_t* eof, int* completed) {
-    if (irqs)      *irqs      = g_iso_irqs;
-    if (bytes)     *bytes     = g_iso_bytes;
-    if (sof)       *sof       = g_sof;
-    if (eof)       *eof       = g_eof;
-    if (completed) *completed = s_completed;
-}
 
 /* ── OV519 control-register helpers (task context) ───────────────────────────────
  * bridge write: vendor OUT (0x41), bRequest 1, wValue 0, wIndex=reg, 1 data byte

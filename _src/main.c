@@ -42,12 +42,12 @@
 /* ── CONFIG ─────────────────────────────────────────────────────────────────── */
 /* Built-in defaults — overridden at boot by D:\xnet.cfg if present.
  * Config format (plain text, FTP-editable, no rebuild needed):
- *     relay=your.relay.ip
+ *     relay=192.168.1.50
  *     port=7777
  */
 #define XNET_RELAY_HOST     "YOUR.RELAY.IP.HERE"
 #define XNET_RELAY_PORT     7777
-#define XNET_VERSION        "0.4.1"
+#define XNET_VERSION        "0.4.5.5"
 /* MAX_SLOTS, TOKEN_LENGTH, MAX_MSG_LEN, CHAT_HISTORY_MAX defined in main.h */
 
 static char g_relay_host[64] = XNET_RELAY_HOST;
@@ -204,7 +204,7 @@ static FileXfer g_xfer;
 
 /* chunk scratch: index(4) + data + PKCS7 slack / IV */
 static uint8_t g_chunk_plain [4 + FILE_CHUNK_DATA + 32];
-static uint8_t g_chunk_cipher[16 + 4 + FILE_CHUNK_DATA + 16 + 32];
+static uint8_t g_chunk_cipher[8 + 16 + 4 + FILE_CHUNK_DATA + 16 + 32];
 
 /* ── SLOT COLORS (for chat attribution) ─────────────────────────────────────── */
 /* RGBA colors per slot — slot 0 = green, 1 = cyan, 2 = yellow, 3 = magenta */
@@ -277,7 +277,6 @@ static uint32_t get_u32(const uint8_t* p);
 /* Secure Video */
 static void handle_screen_video_menu(void);
 static void handle_screen_video(void);
-static void handle_screen_cam_debug(void);
 static void handle_screen_settings(void);
 static void handle_screen_about(void);
 static void enter_video_session(void);
@@ -409,7 +408,6 @@ static void xnet_loop(void) {
             case SCREEN_XFER_RESULT:    handle_screen_xfer_result();    break;
             case SCREEN_VIDEO_MENU:     handle_screen_video_menu();     break;
             case SCREEN_VIDEO:          handle_screen_video();          break;
-            case SCREEN_CAM_DEBUG:      handle_screen_cam_debug();      break;
             case SCREEN_SETTINGS:       handle_screen_settings();       break;
             case SCREEN_ABOUT:          handle_screen_about();          break;
             case SCREEN_ERROR:
@@ -500,7 +498,7 @@ static void handle_screen_main(void) {
 #define MIC_GAIN_STEP  25
 static void handle_screen_settings(void) {
     static int cursor = 0;
-    const int  count  = 7;   /* IP, PORT, MIC SENS, MIC GAIN, DEBUG, CAM TEST, BACK */
+    const int  count  = 6;   /* IP, PORT, MIC SENS, MIC GAIN, DEBUG, BACK */
 
     if (xnet_ui_dpad_up())   cursor = (cursor - 1 + count) % count;
     if (xnet_ui_dpad_down()) cursor = (cursor + 1) % count;
@@ -548,12 +546,7 @@ static void handle_screen_settings(void) {
                 xnet_log_set_verbose(!xnet_log_get_verbose());
                 save_config();
                 break;
-            case 5:  /* CAMERA TEST — local camera diagnostics */
-                xnet_video_reset();
-                xnet_camera_init();
-                g_state.screen = SCREEN_CAM_DEBUG;
-                break;
-            case 6:  /* BACK */
+            case 5:  /* BACK */
                 save_config();
                 g_state.screen = SCREEN_MAIN;
                 break;
@@ -895,9 +888,10 @@ static void xfer_begin_send(void) {
     memcpy(meta + 10, g_xfer.basename, nl);
     int mplain = 10 + nl;
 
-    uint8_t mcipher[16 + 4 + 4 + 2 + XFILES_NAME_MAX + 16 + 32];
-    int clen = xnet_crypto_encrypt_block(g_state.aes_key, meta, mplain,
-                                         mcipher, sizeof(mcipher));
+    uint8_t mcipher[8 + 16 + 4 + 4 + 2 + XFILES_NAME_MAX + 16 + 32];
+    int clen = xnet_replay_seal(&g_state.replay, g_state.aes_key,
+                                XNET_STREAM_FILE, g_state.my_slot,
+                                meta, mplain, mcipher, sizeof(mcipher), 1);
     if (clen < 0) { fclose(g_xfer.fp); g_xfer.fp = NULL; xfer_set_result(0, XERR_DECRYPT); return; }
     if (xnet_net_send_pkt(g_state.sock, PKT_FILE_META, g_state.my_slot,
                           mcipher, (uint16_t)clen) != 0) {
@@ -923,9 +917,10 @@ static void xfer_send_batch(void) {
         }
         put_u32(g_chunk_plain, g_xfer.sent_chunks);
 
-        int clen = xnet_crypto_encrypt_block(g_state.aes_key,
+        int clen = xnet_replay_seal(&g_state.replay, g_state.aes_key,
+                       XNET_STREAM_FILE, g_state.my_slot,
                        g_chunk_plain, (int)(4 + rd),
-                       g_chunk_cipher, sizeof(g_chunk_cipher));
+                       g_chunk_cipher, sizeof(g_chunk_cipher), 1);
         if (clen < 0) { xfer_finish(0, XERR_DECRYPT); return; }
 
         if (xnet_net_send_pkt(g_state.sock, PKT_FILE_DATA, g_state.my_slot,
@@ -1198,35 +1193,6 @@ static void handle_screen_video(void) {
                             xnet_audio_headset_ok(), xnet_audio_talking());
 }
 
-/* Local camera diagnostics: no network. Pulls frames straight from the camera,
-   decodes a preview, and shows live iso/SOF/EOF counters so we can tell whether
-   the sensor is actually producing pixels. */
-static void handle_screen_cam_debug(void) {
-    if (xnet_ui_button_pressed(BTN_B)) {
-        xnet_camera_shutdown();
-        g_state.screen = SCREEN_SETTINGS;
-        return;
-    }
-
-    const uint8_t* jpg = 0; int len = 0;
-    if (xnet_camera_get_frame(&jpg, &len) && len > 0) {
-        /* decode at most ~15fps — full-frame JPEG decode + scaled blit every
-           camera frame saturates the CPU while the iso ring is hammering. */
-        static unsigned long last_dec = 0;
-        unsigned long now = GetTickCount();
-        if (now - last_dec >= 66) {
-            last_dec = now;
-            xnet_video_on_frame(0, jpg, len);   /* decode into slot 0 for preview */
-        }
-    }
-
-    uint32_t irqs = 0, bytes = 0, sof = 0, eof = 0; int comp = 0;
-    xnet_camera_debug_stats(&irqs, &bytes, &sof, &eof, &comp);
-
-    const uint32_t* preview = xnet_video_slot_has(0) ? xnet_video_slot_pixels(0) : 0;
-    xnet_ui_draw_cam_debug(xnet_camera_streaming(), irqs, bytes, sof, eof, comp, preview);
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════════
  * NETWORK ACTIONS
  * ═══════════════════════════════════════════════════════════════════════════════ */
@@ -1259,13 +1225,15 @@ static void do_join_room(void) {
 
 static void send_text(const char* text) {
     uint8_t  plaintext[MAX_MSG_LEN];
-    uint8_t  ciphertext[MAX_MSG_LEN + 16 + 16 + 32]; /* msg + IV + pad + MAC */
+    uint8_t  ciphertext[8 + MAX_MSG_LEN + 16 + 16 + 32]; /* seq + msg + IV + pad + MAC */
     int      plain_len, cipher_len;
+    (void)plaintext;
 
     plain_len  = (int)strlen(text);
-    cipher_len = xnet_crypto_encrypt(g_state.aes_key,
-                                     (uint8_t*)text, plain_len,
-                                     ciphertext, sizeof(ciphertext));
+    cipher_len = xnet_replay_seal(&g_state.replay, g_state.aes_key,
+                                  XNET_STREAM_TEXT, g_state.my_slot,
+                                  (uint8_t*)text, plain_len,
+                                  ciphertext, sizeof(ciphertext), 0);
     if (cipher_len > 0) {
         xnet_net_send_pkt(g_state.sock, PKT_TEXT, g_state.my_slot,
                           ciphertext, cipher_len);
@@ -1297,23 +1265,31 @@ static void recv_packets(void) {
         switch (type) {
 
             case PKT_TOKEN: {
-                /* host receives room token */
+                /* host receives room token (+ 16-byte session nonce from relay) */
                 if (payload_len >= TOKEN_LENGTH) {
                     memcpy(g_state.token, payload, TOKEN_LENGTH);
                     g_state.token[TOKEN_LENGTH] = 0;
                     g_state.my_slot = 0;
                     g_state.peers_online[0] = 1;
                     derive_key_from_token(g_state.token, g_state.aes_key);
+                    /* fresh room -> fresh counters/windows */
+                    xnet_replay_init(&g_state.replay);
+                    if (payload_len >= TOKEN_LENGTH + XNET_SESSION_ID_LEN)
+                        xnet_replay_set_session(&g_state.replay,
+                                                payload + TOKEN_LENGTH);
                 }
                 break;
             }
 
             case PKT_JOINED: {
-                /* joiner receives slot assignment */
+                /* joiner receives slot assignment (+ 16-byte session nonce) */
                 if (payload_len >= 1) {
                     g_state.my_slot = payload[0];
                     g_state.peers_online[g_state.my_slot] = 1;
                     derive_key_from_token(g_state.token, g_state.aes_key);
+                    xnet_replay_init(&g_state.replay);
+                    if (payload_len >= 1 + XNET_SESSION_ID_LEN)
+                        xnet_replay_set_session(&g_state.replay, payload + 1);
                     if (g_state.xfer_role == XFER_RECV) {
                         /* Secure Transfer receiver: idle until a file arrives */
                         xfer_reset();   /* clears g_xfer; xfer_role is in g_state */
@@ -1359,9 +1335,10 @@ static void recv_packets(void) {
             case PKT_TEXT_RELAY: {
                 /* decrypt and display incoming message */
                 uint8_t plaintext[MAX_MSG_LEN + 1];
-                int plain_len = xnet_crypto_decrypt(g_state.aes_key,
-                                                    payload, payload_len,
-                                                    plaintext, sizeof(plaintext));
+                int plain_len = xnet_replay_open(&g_state.replay, g_state.aes_key,
+                                                 XNET_STREAM_TEXT, (uint8_t)slot,
+                                                 payload, payload_len,
+                                                 plaintext, sizeof(plaintext), 0);
                 if (plain_len > 0) {
                     plaintext[plain_len] = 0;
                     append_chat((uint8_t)slot, (char*)plaintext, 0);
@@ -1372,9 +1349,10 @@ static void recv_packets(void) {
             case PKT_VOICE_RELAY: {
                 /* decrypt and queue for audio playback */
                 uint8_t pcm_buf[1024];
-                int pcm_len = xnet_crypto_decrypt(g_state.aes_key,
-                                                  payload, payload_len,
-                                                  pcm_buf, sizeof(pcm_buf));
+                int pcm_len = xnet_replay_open(&g_state.replay, g_state.aes_key,
+                                               XNET_STREAM_VOICE, (uint8_t)slot,
+                                               payload, payload_len,
+                                               pcm_buf, sizeof(pcm_buf), 0);
                 if (pcm_len > 0) {
                     xnet_audio_queue_playback((uint8_t)slot, pcm_buf, pcm_len);
                 }
@@ -1387,9 +1365,10 @@ static void recv_packets(void) {
                 static uint8_t s_vid_jpeg[8192];
                 static int s_rx = 0;
                 if (g_state.video_mode && slot != g_state.my_slot) {
-                    int jlen = xnet_crypto_decrypt_block(g_state.aes_key,
-                                                         payload, payload_len,
-                                                         s_vid_jpeg, sizeof(s_vid_jpeg));
+                    int jlen = xnet_replay_open(&g_state.replay, g_state.aes_key,
+                                                XNET_STREAM_VIDEO, (uint8_t)slot,
+                                                payload, payload_len,
+                                                s_vid_jpeg, sizeof(s_vid_jpeg), 1);
                     if ((s_rx++ % 30) == 0)
                         xnet_vlogf("video: rx slot=%d frames=%d paylen=%d jlen=%d",
                                   slot, s_rx, payload_len, jlen);
@@ -1404,9 +1383,10 @@ static void recv_packets(void) {
                 if (g_state.xfer_role != XFER_RECV) break;
 
                 uint8_t meta[16 + XFILES_NAME_MAX];
-                int mlen = xnet_crypto_decrypt_block(g_state.aes_key,
-                                                     payload, payload_len,
-                                                     meta, sizeof(meta));
+                int mlen = xnet_replay_open(&g_state.replay, g_state.aes_key,
+                                            XNET_STREAM_FILE, (uint8_t)slot,
+                                            payload, payload_len,
+                                            meta, sizeof(meta), 1);
                 if (mlen < 10) {
                     xnet_logf("xfer: META decrypt failed (mlen=%d) -> E%d", mlen, XERR_DECRYPT);
                     xfer_finish(0, XERR_DECRYPT);
@@ -1458,9 +1438,10 @@ static void recv_packets(void) {
                 if (g_state.xfer_role != XFER_RECV || !g_xfer.active) break;
 
                 uint8_t buf[4 + FILE_CHUNK_DATA + 32];
-                int dlen = xnet_crypto_decrypt_block(g_state.aes_key,
-                                                     payload, payload_len,
-                                                     buf, sizeof(buf));
+                int dlen = xnet_replay_open(&g_state.replay, g_state.aes_key,
+                                            XNET_STREAM_FILE, (uint8_t)slot,
+                                            payload, payload_len,
+                                            buf, sizeof(buf), 1);
                 if (dlen < 4) { xfer_finish(0, XERR_DECRYPT); break; }
 
                 uint32_t idx = get_u32(buf);

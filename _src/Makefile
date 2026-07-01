@@ -9,11 +9,13 @@ XISO_DIR  = $(CURDIR)/iso
 SRCS = \
     $(CURDIR)/main.c \
     $(CURDIR)/xnet_crypto.c \
+    $(CURDIR)/xnet_replay.c \
     $(CURDIR)/xnet_net.c \
     $(CURDIR)/xnet_ui.c \
     $(CURDIR)/xnet_files.c \
     $(CURDIR)/xnet_video.c \
     $(CURDIR)/xnet_log.c \
+    $(CURDIR)/xnet_buildstamp.c \
     $(CURDIR)/xnet_voice.c \
     $(CURDIR)/vendor/aes.c \
     $(CURDIR)/vendor/picojpeg.c
@@ -64,3 +66,13 @@ xiso: $(OUTPUT)
 	@mkdir -p $(XISO_DIR)
 	cp $(OUTPUT) $(XISO_DIR)/default.xbe
 	$(NXDK_DIR)/tools/extract-xiso/build/extract-xiso -c $(XISO_DIR) xnet.iso
+
+# ── BUILD STAMP ─────────────────────────────────────────────────────────────────
+# Regenerate xnet_buildstamp.c on every build so the boot "build:" line always
+# reflects this build. __DATE__/__TIME__ are unreliable here: they bake in only
+# when their TU recompiles, so a partial rebuild (or ccache) freezes the date.
+# Making this an .PHONY prerequisite forces the file to be rewritten and recompile everry time.
+.PHONY: __force_buildstamp
+$(CURDIR)/xnet_buildstamp.c: __force_buildstamp
+	@printf 'const char* xnet_build_stamp(void) { return "%s"; }\n' \
+	        "$$(date '+%b %d %Y %H:%M:%S')" > $@

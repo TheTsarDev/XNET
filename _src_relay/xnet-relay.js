@@ -234,6 +234,7 @@ function handleConnection(socket) {
         const token = generateToken();
         const room  = {
           token,
+          sessionId:  crypto.randomBytes(16), // per-room nonce -> client replay session_id
           slots:      new Array(MAX_SLOTS).fill(null),
           createdAt:  Date.now(),
           lastActive: Date.now(),
@@ -247,8 +248,10 @@ function handleConnection(socket) {
         assignedRoom = room;
         assignedSlot = 0;
 
-        // send token back to host
-        safeSend(socket, PKT.TOKEN, 0, Buffer.from(token, 'ascii'));
+        // send token + session nonce back to host (client appends nonce to its
+        // replay state; nonce is non-secret, binds frames to this room only)
+        safeSend(socket, PKT.TOKEN, 0,
+                 Buffer.concat([Buffer.from(token, 'ascii'), room.sessionId]));
 
         // expire room if no one joins within TTL
         room.joinTimer = setTimeout(() => {
@@ -284,10 +287,11 @@ function handleConnection(socket) {
         assignedRoom = room;
         assignedSlot = slot;
 
-        // tell joiner their slot
+        // tell joiner their slot (+ this room's session nonce)
         const joinedBuf = Buffer.alloc(1);
         joinedBuf[0] = slot;
-        safeSend(socket, PKT.JOINED, slot, joinedBuf);
+        safeSend(socket, PKT.JOINED, slot,
+                 Buffer.concat([joinedBuf, room.sessionId]));
 
         // notify existing peers about the new joiner
         const peerBuf = Buffer.alloc(1);

@@ -1,6 +1,6 @@
 # Security Policy
 
-**Current version: 0.4.1 beta**
+**Current version: 0.4.5.5 PUBLIC BETA**
 
 XNET is an end-to-end encrypted text, voice, file, and video communication
 system for the original Xbox. Because it handles private communication, I take
@@ -28,13 +28,15 @@ pre-1.0 software under active development.
 
 | Version       | Supported          |
 | ------------- | ------------------ |
-| 0.4.1 beta    | ✅                |
-| < 0.4.0       | ❌                |
+| 0.4.5.5 PUBLIC BETA    | ✅                |
+| < 0.4.5       | ❌                |
 
-Always run the latest build. Older builds will not receive fixes. **0.4.0
-changed the wire format** (authenticated encryption — see below) and is **not
-compatible with 0.3.x**; every console and relay in a session must run 0.4.0 or
-later.
+Always run the latest build. Older builds will not receive fixes. **0.4.5 changed
+the wire format** (anti-replay — see below): every encrypted frame gains an 8-byte
+sequence prefix and the MAC now binds additional associated data, so 0.4.5 is
+**not compatible with 0.4.x or 0.3.x**. (0.4.0 was the earlier wire-format break
+that introduced authenticated encryption.) Every console **and** the relay in a
+session must run 0.4.5 or later.
 
 ---
 
@@ -48,16 +50,31 @@ that room** — the relay operator cannot.
 - **End-to-end encryption.** All payloads — text, voice, file transfers, and
   video — are encrypted on the sending console and decrypted only on the
   receiving consoles. Encryption uses **AES-128 in CBC mode** (via the
-  public-domain tiny-AES-c implementation), with a fresh 16-byte
-  initialization vector generated per message and prepended to the ciphertext.
+  public-domain tiny-AES-c implementation). Each message gets a 16-byte
+  initialization vector **derived synthetically** — a keyed PRF
+  (`HMAC-SHA-256` under an IV subkey) over the message's associated data — so the
+  IV is unpredictable and never repeats. The IV is transmitted with the
+  ciphertext and covered by the MAC.
 
 - **Authenticated encryption (encrypt-then-MAC).** As of 0.4.0, every packet
-  carries an **HMAC-SHA-256 tag** computed over `(IV || ciphertext)` using a MAC
-  subkey derived from the session key with domain separation. The receiver
+  carries an **HMAC-SHA-256 tag**, computed (since 0.4.5) over
+  `(AAD || IV || ciphertext)` using a MAC subkey derived from the session key
+  with domain separation. The associated data binds a per-room session nonce, the
+  stream type, the sender slot, and a per-message sequence number. The receiver
   verifies the tag in constant time **before decrypting** and silently drops any
   packet that fails. This detects tampering and forgery, and prevents an
   attacker from feeding modified ciphertext into the decryptor. (A bad packet is
   treated exactly like a lost one — the session continues.)
+
+- **Replay protection.** As of 0.4.5, each sender stamps every encrypted frame
+  with a monotonic 64-bit per-stream sequence number, and each receiver enforces
+  a sliding window that rejects duplicated, too-old, or (relay-induced) reordered
+  frames. A **per-room session nonce** — minted by the relay, shared by all
+  members, mixed into the MAC but never sent in data frames — additionally
+  rejects frames replayed from a *different* room that happens to share the same
+  token. Both are bound into the MAC, so neither can be stripped or rewritten
+  without invalidating the tag. The MAC is always verified before the sequence
+  number is allowed to touch the window.
 
 - **Local key derivation.** The session key is derived locally on each console
   as `SHA-256(room token)` truncated to 128 bits. **The key is never
@@ -105,17 +122,9 @@ with anything that matters.
   room — everyone in a room shares one key, so any member can send as the room.
   There is no per-user identity.
 
-- **No replay protection at the transport layer.** The MAC stops modified or
-  forged packets, but a valid packet captured off the wire could be re-injected
-  and would pass verification. XNET does not currently reject replayed packets.
-
 - **No forward secrecy.** The key is static for a given token. If a token is
   later disclosed, any traffic that was captured while that token was in use
   can be decrypted retroactively.
-
-- **Initialization vectors are unique but not cryptographically random.** IVs
-  are produced by a fast PRNG seeded from the Xbox performance counter. They
-  differ per message but are not from a cryptographically secure source.
 
 - **Metadata is not hidden.** The relay operator and anyone watching the network
   can observe IP addresses, connection times, packet sizes, and traffic

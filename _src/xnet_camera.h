@@ -43,9 +43,4 @@ int  xnet_camera_get_frame(const uint8_t** jpeg, int* len);
 
 void xnet_camera_shutdown(void);
 
-/* Diagnostic counters for the on-console DEBUG CAMERA screen. Any pointer may
-   be NULL. On the stub backend these reflect the test-pattern source. */
-void xnet_camera_debug_stats(uint32_t* irqs, uint32_t* bytes,
-                             uint32_t* sof, uint32_t* eof, int* completed);
-
 #endif /* XNET_CAMERA_H */

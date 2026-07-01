@@ -62,11 +62,14 @@ static void random_iv(uint8_t* iv) {
 
 static void sha256(const uint8_t* data, int len, uint8_t* hash_out);
 
-static void hmac_sha256(const uint8_t* key, int klen,
-                        const uint8_t* msg, int mlen, uint8_t* out32) {
+#define XNET_HMAC_AAD_MAX 64
+static void hmac_sha256_ad(const uint8_t* key, int klen,
+                           const uint8_t* aad, int aad_len,
+                           const uint8_t* msg, int mlen, uint8_t* out32) {
     /* single-threaded: encrypt (send) and decrypt (recv) never run reentrantly,
-       so a static scratch buffer is safe and keeps this off the stack */
-    static uint8_t buf[64 + 8192 + 16];
+       so a static scratch buffer is safe and keeps this off the stack.
+       Sized for ipad(64) || aad(<=64) || msg(<=8192). */
+    static uint8_t buf[64 + XNET_HMAC_AAD_MAX + 8192];
     uint8_t k[64];
     uint8_t inner[32];
     int i;
@@ -75,12 +78,15 @@ static void hmac_sha256(const uint8_t* key, int klen,
     if (klen > 64) sha256(key, klen, k);   /* long key -> hash to 32 bytes */
     else           memcpy(k, key, klen);
 
+    if (aad_len < 0)                 aad_len = 0;
+    if (aad_len > XNET_HMAC_AAD_MAX) aad_len = XNET_HMAC_AAD_MAX;
     if (mlen < 0)    mlen = 0;
     if (mlen > 8192) mlen = 8192;          /* payloads are capped well under this */
 
     for (i = 0; i < 64; i++) buf[i] = k[i] ^ 0x36;     /* ipad */
-    memcpy(buf + 64, msg, mlen);
-    sha256(buf, 64 + mlen, inner);
+    if (aad_len) memcpy(buf + 64, aad, aad_len);       /* aad authenticated, not stored */
+    memcpy(buf + 64 + aad_len, msg, mlen);
+    sha256(buf, 64 + aad_len + mlen, inner);
 
     for (i = 0; i < 64; i++) buf[i] = k[i] ^ 0x5c;     /* opad */
     memcpy(buf + 64, inner, 32);
@@ -94,6 +100,31 @@ static void derive_mac_key(const uint8_t* aes_key, uint8_t* mac_key32) {
     sha256(tmp, 16 + 9, mac_key32);
 }
 
+/* Separate key for IV derivation, domain-separated from the AES key exactly as
+ * the MAC key is. Must differ from both the AES key and the MAC key. */
+static void derive_iv_key(const uint8_t* aes_key, uint8_t* iv_key32) {
+    uint8_t tmp[16 + 8];
+    memcpy(tmp, aes_key, 16);
+    memcpy(tmp + 16, "XNET-IV1", 8);       /* domain separation from the AES key */
+    sha256(tmp, 16 + 8, iv_key32);
+}
+
+/* Synthetic IV: IV = first 16 bytes of HMAC(K_iv, aad). Unpredictable (an
+ * attacker cannot compute it without K_iv) and non-repeating (the aad ==
+ * session_id||stream||slot||seq is unique per message, so the HMAC input never
+ * repeats under one key). Replaces the perf-counter RNG, whose output is
+ * predictable from frame timing — a chosen-plaintext (BEAST) hazard for CBC.
+ * Requires a non-empty, per-message-unique aad; callers without one fall back
+ * to random_iv(). */
+static void synth_iv(const uint8_t* aes_key, const uint8_t* aad, int aad_len,
+                     uint8_t* iv) {
+    uint8_t iv_key[32];
+    uint8_t mac[32];
+    derive_iv_key(aes_key, iv_key);
+    hmac_sha256_ad(iv_key, 32, 0, 0, aad, aad_len, mac);  /* HMAC over the aad */
+    memcpy(iv, mac, 16);
+}
+
 /* constant-time equality — no early-out on first mismatched byte */
 static int ct_equal(const uint8_t* a, const uint8_t* b, int n) {
     uint8_t d = 0;
@@ -104,6 +135,13 @@ static int ct_equal(const uint8_t* a, const uint8_t* b, int n) {
 int xnet_crypto_encrypt(const uint8_t* key,
                         const uint8_t* plaintext, int plain_len,
                         uint8_t* out, int out_max) {
+    return xnet_crypto_encrypt_ad(key, 0, 0, plaintext, plain_len, out, out_max);
+}
+
+int xnet_crypto_encrypt_ad(const uint8_t* key,
+                           const uint8_t* aad, int aad_len,
+                           const uint8_t* plaintext, int plain_len,
+                           uint8_t* out, int out_max) {
     uint8_t iv[16];
     uint8_t padded[MAX_ENCRYPTED_PLAINTEXT];
     int     padded_len;
@@ -116,18 +154,20 @@ int xnet_crypto_encrypt(const uint8_t* key,
 
     if (16 + padded_len + XNET_MAC_LEN > out_max) return -1;
 
-    random_iv(iv);
+    if (aad_len > 0) synth_iv(key, aad, aad_len, iv);  /* unpredictable, non-repeating */
+    else             random_iv(iv);                    /* aad-less fallback (unused in data path) */
     memcpy(out, iv, 16); /* prepend IV */
 
     AES_init_ctx_iv(&ctx, key, iv);
     memcpy(out + 16, padded, padded_len);
     AES_CBC_encrypt_buffer(&ctx, out + 16, padded_len);
 
-    /* encrypt-then-MAC: tag over (IV || ciphertext) */
+    /* encrypt-then-MAC: tag over (aad || IV || ciphertext) */
     {
         uint8_t mac_key[32];
         derive_mac_key(key, mac_key);
-        hmac_sha256(mac_key, 32, out, 16 + padded_len, out + 16 + padded_len);
+        hmac_sha256_ad(mac_key, 32, aad, aad_len,
+                       out, 16 + padded_len, out + 16 + padded_len);
     }
     return 16 + padded_len + XNET_MAC_LEN;
 }
@@ -136,6 +176,13 @@ int xnet_crypto_encrypt(const uint8_t* key,
 int xnet_crypto_decrypt(const uint8_t* key,
                         const uint8_t* ciphertext, int cipher_len,
                         uint8_t* out, int out_max) {
+    return xnet_crypto_decrypt_ad(key, 0, 0, ciphertext, cipher_len, out, out_max);
+}
+
+int xnet_crypto_decrypt_ad(const uint8_t* key,
+                           const uint8_t* aad, int aad_len,
+                           const uint8_t* ciphertext, int cipher_len,
+                           uint8_t* out, int out_max) {
     uint8_t iv[16];
     struct AES_ctx ctx;
     int plain_len;
@@ -148,7 +195,7 @@ int xnet_crypto_decrypt(const uint8_t* key,
     {
         uint8_t mac_key[32], tag[32];
         derive_mac_key(key, mac_key);
-        hmac_sha256(mac_key, 32, ciphertext, data_len, tag);
+        hmac_sha256_ad(mac_key, 32, aad, aad_len, ciphertext, data_len, tag);
         if (!ct_equal(tag, ciphertext + data_len, XNET_MAC_LEN)) return -1;
     }
 
@@ -172,6 +219,13 @@ int xnet_crypto_decrypt(const uint8_t* key,
 int xnet_crypto_encrypt_block(const uint8_t* key,
                               const uint8_t* plaintext, int plain_len,
                               uint8_t* out, int out_max) {
+    return xnet_crypto_encrypt_block_ad(key, 0, 0, plaintext, plain_len, out, out_max);
+}
+
+int xnet_crypto_encrypt_block_ad(const uint8_t* key,
+                                 const uint8_t* aad, int aad_len,
+                                 const uint8_t* plaintext, int plain_len,
+                                 uint8_t* out, int out_max) {
     struct AES_ctx ctx;
     uint8_t iv[16];
     int pad_len, padded_len;
@@ -182,7 +236,8 @@ int xnet_crypto_encrypt_block(const uint8_t* key,
     padded_len = plain_len + pad_len;
     if (16 + padded_len + XNET_MAC_LEN > out_max) return -1;
 
-    random_iv(iv);
+    if (aad_len > 0) synth_iv(key, aad, aad_len, iv);  /* unpredictable, non-repeating */
+    else             random_iv(iv);                    /* aad-less fallback (unused in data path) */
     memcpy(out, iv, 16);                       /* prepend IV */
     memcpy(out + 16, plaintext, plain_len);    /* copy plaintext */
     memset(out + 16 + plain_len, (uint8_t)pad_len, pad_len); /* PKCS7 pad */
@@ -190,11 +245,12 @@ int xnet_crypto_encrypt_block(const uint8_t* key,
     AES_init_ctx_iv(&ctx, key, iv);
     AES_CBC_encrypt_buffer(&ctx, out + 16, padded_len);
 
-    /* encrypt-then-MAC: tag over (IV || ciphertext) */
+    /* encrypt-then-MAC: tag over (aad || IV || ciphertext) */
     {
         uint8_t mac_key[32];
         derive_mac_key(key, mac_key);
-        hmac_sha256(mac_key, 32, out, 16 + padded_len, out + 16 + padded_len);
+        hmac_sha256_ad(mac_key, 32, aad, aad_len,
+                       out, 16 + padded_len, out + 16 + padded_len);
     }
     return 16 + padded_len + XNET_MAC_LEN;
 }
@@ -202,6 +258,13 @@ int xnet_crypto_encrypt_block(const uint8_t* key,
 int xnet_crypto_decrypt_block(const uint8_t* key,
                               const uint8_t* ciphertext, int cipher_len,
                               uint8_t* out, int out_max) {
+    return xnet_crypto_decrypt_block_ad(key, 0, 0, ciphertext, cipher_len, out, out_max);
+}
+
+int xnet_crypto_decrypt_block_ad(const uint8_t* key,
+                                 const uint8_t* aad, int aad_len,
+                                 const uint8_t* ciphertext, int cipher_len,
+                                 uint8_t* out, int out_max) {
     struct AES_ctx ctx;
     uint8_t iv[16];
     int enc_len;
@@ -215,7 +278,7 @@ int xnet_crypto_decrypt_block(const uint8_t* key,
     {
         uint8_t mac_key[32], tag[32];
         derive_mac_key(key, mac_key);
-        hmac_sha256(mac_key, 32, ciphertext, data_len, tag);
+        hmac_sha256_ad(mac_key, 32, aad, aad_len, ciphertext, data_len, tag);
         if (!ct_equal(tag, ciphertext + data_len, XNET_MAC_LEN)) return -1;
     }
 

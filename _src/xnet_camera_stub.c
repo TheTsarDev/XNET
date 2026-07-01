@@ -39,15 +39,6 @@ void xnet_camera_register(void) {
     /* stub has no USB driver to register */
 }
 
-void xnet_camera_debug_stats(uint32_t* irqs, uint32_t* bytes,
-                             uint32_t* sof, uint32_t* eof, int* completed) {
-    /* stub: report the test-pattern frame count in the "completed"/eof fields */
-    if (irqs)      *irqs      = (uint32_t)s_emitted;
-    if (bytes)     *bytes     = (uint32_t)(s_emitted * k_test_jpeg_len);
-    if (sof)       *sof       = (uint32_t)s_emitted;
-    if (eof)       *eof       = (uint32_t)s_emitted;
-    if (completed) *completed = s_emitted;
-}
 
 int xnet_camera_streaming(void) {
     return s_inited;

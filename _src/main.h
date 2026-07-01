@@ -14,6 +14,8 @@
 #define MAX_MSG_LEN      128
 #define CHAT_HISTORY_MAX 20
 
+#include "xnet_replay.h"   /* xnet_replay_t — embedded in XNetState below */
+
 typedef struct {
     char    text[MAX_MSG_LEN + 1];
     uint8_t slot;
@@ -38,7 +40,6 @@ typedef enum {
 
     SCREEN_VIDEO_MENU,      /* START / JOIN chooser              */
     SCREEN_VIDEO,           /* live camera tile grid             */
-    SCREEN_CAM_DEBUG,       /* local camera diagnostics          */
 
     SCREEN_SETTINGS,        /* relay/mic/camera-test settings    */
     SCREEN_ABOUT,           /* about / credits                   */
@@ -68,6 +69,7 @@ typedef struct {
     uint8_t      xfer_role;   /* XferRole — routes token entry/join → transfer */
     uint8_t      video_mode;  /* 1 = this room is a Secure Video session        */
     uint8_t      video_cam_off; /* 1 = local camera muted (stop sending)        */
+    xnet_replay_t replay;     /* anti-replay: counters, per-peer windows, session_id */
 } XNetState;
 
 /* Physical memory stats via the Xbox kernel (defined in main.c). */

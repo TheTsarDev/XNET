@@ -1,4 +1,4 @@
-# XNET
+# XNET v0.4.5.5 [PUBLIC RELAY ADDED]
 
 **End-to-end encrypted text, voice, file, and video communication for the original Xbox.**
 
@@ -6,7 +6,7 @@
   <img src="_img/xnet-boot.png" width="800">
 </p>
 
-`v0.4.1 public beta` · Built with [NXDK](https://github.com/XboxDev/nxdk) · *Privacy by Design*
+`v0.4.5.5 public beta` · Built with [NXDK](https://github.com/XboxDev/nxdk) · *Privacy by Design*
 
 XNET turns a retail original Xbox into a secure communicator. Up to four
 consoles anywhere in the world can chat, talk, send files, and see each other on
@@ -19,30 +19,55 @@ single byte of it.
 
 ---
 
+## What's New in v0.4.5.5
+
+This release hardens the encrypted transport and stabilizes the camera and video
+paths.
+
+- **Per-packet initialization vectors.** Every encrypted packet now uses a unique
+  IV derived deterministically from its own authenticated header (session,
+  stream, sender, and sequence number), so no two packets ever share an IV. This
+  removes the IV-reuse weakness present in earlier builds.
+- **Replay protection.** Each packet carries a sequence number, and receivers
+  keep a sliding window per sender to detect and drop duplicated or replayed
+  packets. A captured packet can no longer be re-injected into a live session.
+- **Camera hard-lock fix.** Resolved an isochronous-scheduling issue that could
+  freeze the console during camera use — reproduced most reliably with a camera
+  connected and no Communicator present.
+- **Video decoder stability.** The JPEG decoder is now strictly bounded.
+  Malformed, truncated, or oversized camera frames are rejected cleanly instead
+  of stalling or overrunning the decoder.
+- **Public relay, zero configuration.** XNET now ships with a public relay
+  pre-set in the bundled `xnet.cfg`, so a fresh install connects out of the box —
+  nothing to host, no address to enter.
+
+> 🌐 **Connect out of the box.** The release includes an `xnet.cfg` already
+> pointed at a live public relay! flash, launch, and create or join a room. The
+> relay is **zero-knowledge**: it blindly forwards encrypted packets and can't
+> read anything, so sharing it costs you nothing, and your room token stays the
+> only secret. Prefer your own relay? Change it in Settings any time.
+
+> **Compatibility:** v0.4.5+ changed the wire format (sequence numbers + per-packet
+> IVs) and does **not** interoperate with v0.4.1. Every console in a
+> session must be on **v0.4.5+** ; flash all participants before joining.
+
+---
+
 ## Downloads
 
-- [XNET-v0.4.1 ISO](_deployments/XNET.iso)
-- [XNET-v0.4.1 XISO](_deployments/XNET.xiso)
-- [XNET-v0.4.1 XBE Package](_deployments/XNET.zip)
+| File | Download |
+|------|----------|
+| 💿 **XNET .iso** | [Download ISO v0.4.5.5](_deployments/XNET.iso) |
+| 💿 **XNET .xiso** | [Download XISO v0.4.5.5](_deployments/XNET.xiso) |
+| 📁 **XNET .zip** | [Download XBE v0.4.5.5](_deployments/XNET.zip) |
 
-## SHA-256 Checksums
+### SHA-256 (v0.4.5.5)
 
-Verify your downloads using the following SHA-256 hashes
-
-```sh
-XNET.iso
-SHA-256: e2ca7570b1ec4f1a4c806df430cadafaca4e238c9c5f2bb0e83939e72cb47e41
-```
-
-```sh
-XNET.xiso
-SHA-256: 85d3413bc4d6ceef17d4215a410e94977e2b73ff9fff17539bb23bc9ac050dce
-```
-
-```sh
-XNET.zip
-SHA-256: 2e9cfe4212b6b4e7863994d58b8adfdfa0c40e6ad4f9cd223f818c25706c34f4
-```
+| File | SHA-256 |
+|------|----------|
+| `XNET.iso` | `f2474b7059769d95326f017db30f1c28149aeedcbf8ec025e79e4d278436b9a7` |
+| `XNET.xiso` | `d7854b64388a49dfadd14f029fc5067a9377bd973b8a5e4b853a334cf195a7c4` |
+| `XNET.zip` | `1044a0cf0e3ca9cc2bbf999ed5cc501e7aa12538894434aea979b9da3e44c3ce` |
 
 ## Features
 
@@ -50,7 +75,8 @@ SHA-256: 2e9cfe4212b6b4e7863994d58b8adfdfa0c40e6ad4f9cd223f818c25706c34f4
 - **Real-time voice chat** — open-mic voice over an Xbox Communicator or Hawk adapter and headset.
 - **Secure video chat** — live camera video from a PS2 EyeToy or Xbox camera, up to four tiles.
 - **Encrypted file transfer** — send files console-to-console.
-- **Authenticated encryption** — AES-128-CBC with HMAC-SHA-256 (encrypt-then-MAC).
+- **Authenticated encryption** — AES-128-CBC with HMAC-SHA-256 (encrypt-then-MAC, verified before decryption).
+- **Per-packet IVs + replay protection** — a unique IV on every packet and a sliding-window sequence check that rejects replayed traffic.
 - **Zero-knowledge relay** — the server blindly forwards encrypted packets and
   stores nothing.
 - **Zero persistence** — rooms live only in memory and vanish when they end. No
@@ -83,9 +109,11 @@ but silent.
 
 ### Relay
 
-XNET needs a relay to route traffic between consoles (consoles never connect
-directly to each other, so no one learns anyone else's IP). You can point at an
-existing XNET relay or host your own — see **Hosting a Relay** below.
+XNET routes traffic between consoles through a relay (consoles never connect
+directly, so no one learns anyone else's IP). **The release ships with a public
+relay already configured in `xnet.cfg`, so you don't need to set anything up to
+get started.** You can point at a different relay or host your own any time — see
+**Hosting a Relay** below.
 
 ---
 
@@ -94,8 +122,9 @@ existing XNET relay or host your own — see **Hosting a Relay** below.
 1. Build `default.xbe` (see **Building from Source**) or grab a release build.
 2. FTP the XNET folder to your console (for example under
    `E:\Apps\XNET\`).
-3. Create a config file named `xnet.cfg` next to `default.xbe` (this is the
-   `D:` launch directory at runtime) — see **Configuration**.
+3. The release includes an `xnet.cfg` next to `default.xbe` (the `D:` launch
+   directory at runtime), already pointed at a public relay — keep it as-is to
+   connect immediately, or edit it to use your own relay. See **Configuration**.
 4. Launch XNET from your dashboard.
 
 On boot, XNET mounts the drives, brings up USB and networking, and drops you at
@@ -105,13 +134,15 @@ the main menu. A log is written to `E:\Dashboard\system\xnet.log`.
 
 ## Configuration
 
-XNET reads `xnet.cfg` from its launch directory (`D:\xnet.cfg`) at boot. All
-keys are optional; anything omitted falls back to a built-in default, and
-everything here can also be changed in-app from the **Settings** screen (which
-writes the file back for you).
+XNET reads `xnet.cfg` from its launch directory (`D:\xnet.cfg`) at boot. **The
+release ships with this file already pointed at a public relay**, so it works
+untouched — the example below just shows the format if you want to change
+anything. All keys are optional (anything omitted falls back to a built-in
+default), and everything here can also be changed in-app from the **Settings**
+screen, which writes the file back for you.
 
 ```ini
-relay=your.relay.host.or.ip
+relay=your.relay.host.or.ip   # bundled cfg ships with a public relay pre-set
 port=7777
 mic_gate=50000
 mic_gain=100
@@ -120,7 +151,7 @@ debug_log=0
 
 | Key         | Meaning                                                      |
 | ----------- | ----------------------------------------------------------- |
-| `relay`     | Relay hostname or IP                                         |
+| `relay`     | Relay hostname or IP (bundled cfg ships with a public relay) |
 | `port`      | Relay port (default 7777)                                    |
 | `mic_gate`  | Voice activation threshold; `0` = open mic (always transmit) |
 | `mic_gain`  | Mic input gain in percent (25–200); lower it if a hot mic distorts |
@@ -167,7 +198,6 @@ confirm you're transmitting.
   talk normally, lower the gain. (Great for hot headset mics like a Pro X.)
 - **DEBUG LOGGING** — turn on a full diagnostic trace for bug reports, off for
   normal use.
-- **CAMERA TEST** — local camera diagnostics, no network required.
 
 ---
 
@@ -182,12 +212,9 @@ cd _src
 make
 ```
 
-The build produces `bin/default.xbe`. The relay is a single Node.js file in
-`_src_relay/`.
-
-> Tip: if the build log's `build:` timestamp ever looks stale, `touch
-> _src/xnet_log.c` before building — that's the file the date/time string lives
-> in.
+The build produces `bin/default.xbe`. The boot `build:` timestamp is regenerated
+automatically on every build, so it always reflects the current binary. The
+relay is a single Node.js file in `_src_relay/`.
 
 ---
 
@@ -211,10 +238,13 @@ logging — the zero-knowledge design is the point.
 ## Security
 
 XNET encrypts all text, voice, video, and file content end-to-end with
-**AES-128-CBC**, and as of v0.4.x authenticates every packet with
-**HMAC-SHA-256** (encrypt-then-MAC, verified before decryption). Session keys
-are derived **locally** from the room token and are never transmitted; the relay
-never holds a key and cannot read traffic.
+**AES-128-CBC** and authenticates every packet with **HMAC-SHA-256**
+(encrypt-then-MAC, verified before decryption). As of **v0.4.5**, every packet
+also carries a **unique per-packet IV** — derived deterministically from its
+authenticated header, so IVs are never reused — and a **sequence number** checked
+against a per-sender sliding window that rejects duplicated or replayed packets.
+Session keys are derived **locally** from the room token and are never
+transmitted; the relay never holds a key and cannot read traffic.
 
 It is honest, hobbyist software for 24-year-old hardware — not an audited,
 high-threat tool. Please read the full details and limitations:
@@ -222,12 +252,12 @@ high-threat tool. Please read the full details and limitations:
 - [**Security Policy**](SECURITY.md) — supported versions, threat model, and how
   to report a vulnerability.
 - [**Security Architecture**](SECURITY_ARCHITECTURE.md) — key derivation, packet
-  framing, the encrypt-then-MAC construction, per-feature data paths, and the
-  relay design.
+  framing, per-packet IV generation, the encrypt-then-MAC construction, the
+  replay window, per-feature data paths, and the relay design.
 
-> **Compatibility note:** v0.4.x changed the wire format (authenticated
-> encryption) and does **not** interoperate with 0.3.x. Every console in a
-> session must be on the same major protocol — flash all participants to 0.4.x.
+> **Compatibility note:** v0.4.5 changed the wire format (sequence numbers and
+> per-packet IVs) and does **not** interoperate with v0.4.1 or v0.3.x. Every
+> console in a session must be on **v0.4.5** — flash all participants.
 
 ---
 
@@ -236,7 +266,11 @@ high-threat tool. Please read the full details and limitations:
 - **A log is always written to** `E:\Dashboard\system\xnet.log` (boot, device,
   and connection events). It truncates on every boot, so it stays small.
 - For a detailed report, enable **DEBUG LOGGING** in Settings, reproduce the
-  issue, then grab the log over FTP. This WILL consume RAM on console, you may crash after long periods.
+  issue, then grab the log over FTP. Verbose logging is memory-intensive on
+  console — turn it on only to capture a specific problem, then turn it back off.
+- Can't connect on a fresh install? Make sure `xnet.cfg` is present next to
+  `default.xbe` — the release ships with one pointed at the public relay. Without
+  it, enter a relay in **Settings** before creating or joining a room.
 - No video tiles? Confirm the EyeToy enumerates in the log (`camera: streaming
   started`). No audio? Confirm the Communicator enumerates (`xblc: mic/spk
   streaming started`).
@@ -245,46 +279,14 @@ high-threat tool. Please read the full details and limitations:
 
 ## Known Bugs
 
-- **XEMU/DISCS** : `.xiso` && `.iso`config adjustments are not persistent, this is already addressed but NOT present currently.
+- **xemu / disc builds:** in-app config changes may not persist across launches
+  on `.iso` / `.xiso` builds. A fix exists but is not folded into this build yet.
 
 ---
 
 ## Source Availability and Documentation
 
 - XNET is intentionally written with extensive inline documentation and descriptive code structure. Comments, protocol notes, and implementation details are included throughout the source to promote transparency, simplify auditing, and make the project easier for others to understand, maintain, and contribute to. This level of documentation is deliberate and reflects the project's commitment to openness and long-term preservation.
-
----
-
-# Currently in Development (v0.4.5) Security Upgrades
-
-- Work on XNET v0.4.5 is focused on continued protocol hardening and long-term security improvements. I will introduce anti-replay protection across text, voice, video, and file transfer streams through authenticated sequence numbers, sliding receive windows, and per-room session identifiers while preserving the relay's zero-knowledge design.
-
-- Focus is also on improving initialization vector generation and exploring forward secrecy mechanisms to better isolate sessions and reduce the impact of key compromise. These enhancements are aimed at strengthening XNET's cryptographic foundation while maintaining compatibility with original Xbox hardware.
-
-As the protocol evolves, some of these changes may introduce future wire-format updates requiring clients and relays to be upgraded together.
-
----
-
-## ☕ Support Development
-
-If you've found XNET useful or enjoy seeing new software developed for the original Xbox, consider supporting the project.
-
-Your support helps fund:
-
-- New features
-- Bug fixes
-- Original Xbox hardware for testing
-- Server infrastructure
-- Documentation and tooling
-- Future open-source projects
-
-Every contribution helps keep development moving forward.
-
-➡️ https://buymeacoffee.com/tsardev
-
-Thank you for supporting independent software development!
-
----
 
 ## Acknowledgments
 
@@ -309,5 +311,28 @@ Additional thanks to the contributors of the Xbox EyeToy project and [ConsoleMod
 Their collective work preserving and documenting the original Xbox camera ecosystem made modern experimentation and compatibility efforts possible.
 
 XNET would not exist without the collective knowledge shared by the original Xbox community over the past two decades.
+
+---
+
+## ☕ Support Development
+
+If you enjoy this project and would like to help support continued development, consider buying me a coffee.
+
+Your support helps fund:
+
+- New features
+- Bug fixes
+- Original Xbox hardware for testing
+- Server infrastructure
+- Documentation and tooling
+- Future open-source projects
+
+<p align="center">
+  <a href="https://buymeacoffee.com/tsardev">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+Me+a+Coffee&emoji=☕&slug=tsardev&button_colour=40DCA5&font_colour=000000&font_family=Arial&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee">
+  </a>
+</p>
+
+Thank you for supporting independent development!
 
 *"Privacy by Design."*

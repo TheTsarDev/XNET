@@ -28,7 +28,7 @@ void xnet_xblc_write_spk(const int16_t* src, uint32_t n);
 /** Samples queued for the speaker. */
 uint32_t xnet_xblc_spk_queued(void);
 
-/** Dump IRQ counters to xnet.log (call from task context only). */
+/** Dump IRQ counters to tsar.log (call from task context only). */
 void xnet_xblc_log_stats(void);
 
 #endif /* XNET_XBLC_H */

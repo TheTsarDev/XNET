@@ -96,10 +96,6 @@ void xnet_ui_draw_video_menu(int cursor);
 void xnet_ui_draw_video_grid(int my_slot, const int* peers_online, int cam_ok,
                              int headset_ok, int talking);
 
-/** DEBUG CAMERA: live local diagnostics + decoded preview (NULL if none yet). */
-void xnet_ui_draw_cam_debug(int streaming, uint32_t irqs, uint32_t bytes,
-                            uint32_t sof, uint32_t eof, int completed,
-                            const uint32_t* preview);
 
 /** Boot splash with status line — usable before any subsystem init. */
 void xnet_ui_draw_splash(const char* status);

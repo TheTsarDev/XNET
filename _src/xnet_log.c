@@ -43,7 +43,7 @@ int xnet_log_init(void) {
     if (!g_log) return -1;
 
     xnet_logf("==== XNET boot log ====");
-    xnet_logf("build: %s %s", __DATE__, __TIME__);
+    xnet_logf("build: %s", xnet_build_stamp());   /* regenerated every build — see Makefile */
     return 0;
 }
 

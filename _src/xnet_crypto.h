@@ -57,6 +57,36 @@ int xnet_crypto_decrypt_block(const uint8_t* key,
                               uint8_t* out, int out_max);
 
 /**
+ * AAD-aware variants (used by the replay layer, xnet_replay.c).
+ *
+ * Identical to the functions above, except the HMAC tag is computed over
+ *   aad || IV || ciphertext
+ * instead of just IV || ciphertext. The `aad` bytes are authenticated but NOT
+ * stored in the output — the receiver must supply the same aad to verify. With
+ * aad == NULL / aad_len == 0 these are byte-for-byte equivalent to the plain
+ * variants, which are now thin wrappers over these.
+ */
+int xnet_crypto_encrypt_ad(const uint8_t* key,
+                           const uint8_t* aad, int aad_len,
+                           const uint8_t* plaintext, int plain_len,
+                           uint8_t* out, int out_max);
+
+int xnet_crypto_decrypt_ad(const uint8_t* key,
+                           const uint8_t* aad, int aad_len,
+                           const uint8_t* ciphertext, int cipher_len,
+                           uint8_t* out, int out_max);
+
+int xnet_crypto_encrypt_block_ad(const uint8_t* key,
+                                 const uint8_t* aad, int aad_len,
+                                 const uint8_t* plaintext, int plain_len,
+                                 uint8_t* out, int out_max);
+
+int xnet_crypto_decrypt_block_ad(const uint8_t* key,
+                                 const uint8_t* aad, int aad_len,
+                                 const uint8_t* ciphertext, int cipher_len,
+                                 uint8_t* out, int out_max);
+
+/**
  * SHA-256 hash of data, take first 16 bytes into key_out.
  * Used for token → AES key derivation.
  */

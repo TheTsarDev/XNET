@@ -5,6 +5,80 @@ All notable changes to XNET are documented here. The format is based on
 versioning during early development.
 
 ---
+# [0.4.5.5] - 2026-07-01 - Replay Protection & Camera Cleanup
+
+## Security
+
+- Added comprehensive replay protection across encrypted text, voice, video, and file transfer streams. Every encrypted packet now carries a 64-bit sequence number authenticated with HMAC-SHA-256, while per-stream sliding receive windows reject duplicate and stale packets without affecting normal relay packet reordering.
+
+- Added relay-generated 128-bit session identifiers to prevent replay attacks across reused room tokens. Authenticated associated data (AAD) now includes the session identifier, stream type, sender slot, and sequence number, and the receive path now performs MAC verification, replay validation, and decryption in that order.
+
+- Synthetic IV generation replaces the previous performance-counter-based approach. IVs are now deterministically derived from authenticated session metadata using a dedicated IV derivation key, guaranteeing uniqueness across sessions, streams, senders, and packet sequence numbers while preserving compatibility with replay-enabled builds.
+
+- Added a watchdog to the JPEG decoder to prevent malformed or truncated video frames from hanging the console. Invalid frames are now safely discarded and treated as packet loss.
+
+## Changed
+
+- Removed the Camera Test screen and all associated development diagnostics from the Settings menu. The Settings menu has been simplified to six entries, and all development-only camera tracing, debug structures, and diagnostic plumbing have been removed from production builds. Secure Video camera functionality is unchanged.
+
+- Removed obsolete camera development artifacts and restored the production implementation of `cam_iso_irq()`.
+
+## Testing
+
+Added host-side regression coverage for:
+
+- Encryption round-trip
+- Replay rejection
+- Tamper detection
+- Cross-session replay
+- Cross-stream relabeling
+- Cross-slot relabeling
+- Block-path encryption
+- Packet reorder tolerance
+- Legacy empty-AAD compatibility
+- Synthetic IV determinism
+- IV uniqueness across sequence numbers
+- IV uniqueness across sessions
+- IV uniqueness across stream types
+- IV uniqueness across sender slots
+
+Verified stable operation across extended encrypted video sessions consisting of tens of thousands of frames with no decoder hangs or memory growth.
+
+Confirmed replay protection and synthetic IV generation introduce negligible runtime overhead.
+
+Verified relay compatibility with the updated protocol.
+
+## Compatibility
+
+**Breaking wire-format change.**
+
+Encrypted packets now include:
+
+- 64-bit sequence numbers
+- Authenticated Associated Data (AAD)
+- Relay-generated 128-bit session identifiers
+
+Clients and relays prior to v0.4.5 are incompatible. All consoles and relays participating in the same room must be upgraded together.
+
+## Known Issues
+
+Launching XNET with an EyeToy connected but without an Xbox Communicator may still result in a startup lockup during automatic camera initialization.
+
+Investigation indicates the issue originates from USB isochronous scheduling within the underlying nxdk USB stack rather than the XNET camera implementation.
+
+## Notes
+
+Current work continues on:
+
+- Deferred camera initialization for Secure Video
+- Forward secrecy
+- CSPRNG-backed key generation
+- Expanded room sizes
+- Cross-platform relay support (PS2, ANDROID, IPHONE)
+- Relay scalability improvements
+- 32-user rooms
+
+---
 
 ## [0.4.1] - 2026-06-20 - Voice Decoupling
 

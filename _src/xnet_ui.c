@@ -279,6 +279,9 @@ void xnet_ui_flip(void) {
     input_poll();
 }
 
+/* ── DEV WATERMARK (for shared screenshots) ──────────────────────────────────── */
+ #define XNET_WATERMARK "PUBLIC BETA"
+
 /* ── RELAY INFO LINE (set once at boot from config) ─────────────────────────── */
 static char g_relay_info[96] = "";
 
@@ -976,59 +979,14 @@ void xnet_ui_draw_video_grid(int my_slot, const int* peers_online, int cam_ok,
     draw_footer("Y CAMERA ON/OFF   START LEAVE");
 }
 
-/* ── DEBUG CAMERA ─────────────────────────────────────────────────────────────── */
-void xnet_ui_draw_cam_debug(int streaming, uint32_t irqs, uint32_t bytes,
-                            uint32_t sof, uint32_t eof, int completed,
-                            const uint32_t* preview) {
-    draw_header("DEBUG CAMERA");
-
-    /* preview box (left) */
-    int px = 16, py = 44, pw = 320, ph = 240;
-    fb_draw_rect_outline(px - 1, py - 1, pw + 2, ph + 2, COL_DIM);
-    if (preview) {
-        fb_blit_scaled(px, py, pw, ph, preview, XVID_DW, XVID_DH);
-    } else {
-        fb_fill_rect(px, py, pw, ph, COL_PANEL);
-        fb_draw_string_centered_in(px, py + ph / 2 - 4, pw, "NO PREVIEW", COL_DIM);
-    }
-
-    /* stats panel (right) */
-    int sx = 360, sy = 52, lh = 22;
-    char line[48];
-    fb_draw_string(sx, sy, streaming ? "STREAMING: YES" : "STREAMING: NO",
-                   streaming ? COL_ACCENT : COL_ERROR); sy += lh + 6;
-
-    snprintf(line, sizeof(line), "iso irqs : %lu", (unsigned long)irqs);
-    fb_draw_string(sx, sy, line, COL_TEXT); sy += lh;
-    snprintf(line, sizeof(line), "bytes    : %lu", (unsigned long)bytes);
-    fb_draw_string(sx, sy, line, bytes ? COL_TEXT : COL_ERROR); sy += lh;
-    snprintf(line, sizeof(line), "SOF      : %lu", (unsigned long)sof);
-    fb_draw_string(sx, sy, line, sof ? COL_TEXT : COL_DIM); sy += lh;
-    snprintf(line, sizeof(line), "EOF      : %lu", (unsigned long)eof);
-    fb_draw_string(sx, sy, line, eof ? COL_TEXT : COL_DIM); sy += lh;
-    snprintf(line, sizeof(line), "frames   : %d", completed);
-    fb_draw_string(sx, sy, line, completed ? COL_ACCENT : COL_DIM); sy += lh + 10;
-
-    /* plain-language verdict */
-    const char* verdict; uint32_t vcol;
-    if (!streaming)       { verdict = "CAMERA NOT DETECTED";        vcol = COL_ERROR; }
-    else if (bytes == 0)  { verdict = "NO PIXELS (sensor blank)";   vcol = COL_ERROR; }
-    else if (sof == 0)    { verdict = "DATA, NO FRAME MARKERS";     vcol = COL_ERROR; }
-    else if (completed==0){ verdict = "ASSEMBLING...";              vcol = COL_ACCENT; }
-    else                  { verdict = "LIVE";                       vcol = COL_ACCENT; }
-    fb_draw_string(sx, sy, verdict, vcol);
-
-    draw_footer("B BACK TO MENU");
-}
-
 /* ── SETTINGS ─────────────────────────────────────────────────────────────────── */
 void xnet_ui_draw_settings(int cursor, const char* relay_ip, int relay_port,
                            uint32_t gate, uint32_t energy, int talking,
                            int debug_on, int mic_gain, uint32_t peak) {
     draw_header("SETTINGS");
 
-    const char* labels[7] = { "RELAY IP", "RELAY PORT", "MIC SENSITIVITY",
-                              "MIC GAIN", "DEBUG LOGGING", "CAMERA TEST", "BACK" };
+    const char* labels[6] = { "RELAY IP", "RELAY PORT", "MIC SENSITIVITY",
+                              "MIC GAIN", "DEBUG LOGGING", "BACK" };
 
     /* gate -> human label (low gate = picks up quiet speech = HIGH sensitivity) */
     const char* mic_mode =
@@ -1037,17 +995,16 @@ void xnet_ui_draw_settings(int cursor, const char* relay_ip, int relay_port,
         (gate <= 250000) ? "MEDIUM" :
         (gate <= 450000) ? "LOW" : "VERY LOW";
 
-    char vals[7][48];
+    char vals[6][48];
     snprintf(vals[0], sizeof(vals[0]), "%s", relay_ip);
     snprintf(vals[1], sizeof(vals[1]), "%d", relay_port);
     snprintf(vals[2], sizeof(vals[2]), "%s   < >", mic_mode);
     snprintf(vals[3], sizeof(vals[3]), "%d%%   < >", mic_gain);
     snprintf(vals[4], sizeof(vals[4]), "%s   < >", debug_on ? "ON" : "OFF");
-    vals[5][0] = 0;
-    vals[6][0] = 0;
+    vals[5][0] = 0;   /* BACK */
 
     int y0 = 76, ih = 34, lx = 60, vx = 300;
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 6; i++) {
         int y   = y0 + i * ih;
         int sel = (i == cursor);
         if (sel) {
@@ -1153,7 +1110,7 @@ void xnet_ui_draw_about(int* scroll) {
         {"- Built specifically for the 733 MHz Xbox hardware", 0},
         {"", 0},
         {"VERSION", 1},
-        {"XNET v0.4.1 public-beta", 0},
+        {"XNET v0.5.5 PUBLIC BETA", 0},
         {"Built with NXDK", 0},
         {"", 0},
         {"CREDITS", 1},

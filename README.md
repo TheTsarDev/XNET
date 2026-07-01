@@ -281,7 +281,8 @@ high-threat tool. Please read the full details and limitations:
 
 - **xemu / disc builds:** in-app config changes may not persist across launches
   on `.iso` / `.xiso` builds. A fix exists but is not folded into this build yet.
-
+- **Crash on boot:** there is a chance that if you boot XNET with an EyeToy connected
+and no HAWK or Xbox Communcator in the controller, a driver compat will cause a hard crash.
 ---
 
 ## Source Availability and Documentation
